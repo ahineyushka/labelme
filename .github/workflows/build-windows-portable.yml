@@ -39,23 +39,60 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
           @'
-          # Initialize NumPy before labelme imports ONNX Runtime on Windows.
-          # ONNX Runtime's native extension uses NumPy's C API during import.
-          import importlib.metadata
+          import multiprocessing
           import sys
 
-          import numpy
-
-          from labelme.__main__ import main
+          def _portable_smoke_worker(connection):
+              connection.send("spawn-ok")
+              connection.close()
 
           if __name__ == "__main__":
-              if "--portable-smoke-test" in sys.argv:
-                  # gdown reads its installed distribution metadata at import time.
-                  import gdown
+              # Required by PyInstaller on Windows before importing app modules:
+              # multiprocessing workers start by re-launching this executable.
+              multiprocessing.freeze_support()
 
+              if "--portable-smoke-test" in sys.argv:
+                  import importlib.metadata
+                  import numpy
+                  import osam
+
+                  # This path checks NumPy, OSAM and gdown metadata without opening the GUI.
                   print(f"Labelme {importlib.metadata.version('labelme')}")
+                  print(f"NumPy {numpy.__version__}")
                   print(f"gdown {importlib.metadata.version('gdown')}")
+
+                  # Verify frozen multiprocessing too, which the model downloader uses.
+                  context = multiprocessing.get_context("spawn")
+                  receive_connection, send_connection = context.Pipe(duplex=False)
+                  process = context.Process(
+                      target=_portable_smoke_worker,
+                      args=(send_connection,),
+                  )
+                  process.start()
+                  send_connection.close()
+                  process.join(timeout=30)
+                  if process.is_alive():
+                      process.terminate()
+                      process.join()
+                      raise RuntimeError("Packaged multiprocessing smoke test timed out.")
+                  if process.exitcode != 0:
+                      raise RuntimeError(
+                          f"Packaged multiprocessing child exited with code {process.exitcode}."
+                      )
+                  if not receive_connection.poll(5):
+                      raise RuntimeError("Packaged multiprocessing child sent no result.")
+                  result = receive_connection.recv()
+                  receive_connection.close()
+                  if result != "spawn-ok":
+                      raise RuntimeError(f"Unexpected multiprocessing result: {result!r}")
+                  print("Packaged multiprocessing spawn: OK")
                   raise SystemExit(0)
+
+              # Import NumPy before Labelme so ONNX Runtime sees NumPy initialized on Windows.
+              import numpy
+
+              from labelme.__main__ import main
+
               main()
           '@ | Set-Content -Path build/labelme_launcher.py -Encoding utf8
 
