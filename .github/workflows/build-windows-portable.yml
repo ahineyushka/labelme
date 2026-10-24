@@ -1,0 +1,89 @@
+name: Build portable Windows app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Labelme for Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Labelme and PyInstaller
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller
+
+      - name: Create an entry-point wrapper
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          @'
+          from labelme.__main__ import main
+
+          if __name__ == "__main__":
+              main()
+          '@ | Set-Content -Path build/labelme_launcher.py -Encoding utf8
+
+      - name: Build portable application
+        shell: pwsh
+        run: |
+          $osamPath = python -c "import os, osam; print(os.path.dirname(osam.__file__))"
+          $bpePath = Join-Path $osamPath "_models/yoloworld/clip/bpe_simple_vocab_16e6.txt.gz"
+          if (-not (Test-Path $bpePath)) {
+            throw "Required OSAM vocabulary file was not found: $bpePath"
+          }
+
+          pyinstaller build/labelme_launcher.py `
+            --name=Labelme `
+            --windowed `
+            --noconfirm `
+            --clean `
+            --specpath=build `
+            --add-data "$bpePath;osam/_models/yoloworld/clip" `
+            --add-data "labelme/_config/default_config.yaml;labelme/_config" `
+            --add-data "labelme/icons;labelme/icons" `
+            --add-data "labelme/translate;labelme/translate" `
+            --icon "labelme/icons/icon-256.png" `
+            --onedir
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "PyInstaller failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Check the executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "dist/Labelme/Labelme.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Build did not produce the expected executable: $exe"
+          }
+          & $exe --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "The packaged executable failed its --help smoke test."
+          }
+
+      - name: Upload portable application
+        uses: actions/upload-artifact@v7
+        with:
+          name: Labelme-Windows-x64
+          path: dist/Labelme/
+          if-no-files-found: error
+          retention-days: 14
