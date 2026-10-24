@@ -29,7 +29,10 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install . pyinstaller
+          # NumPy 2.4+ requires the x86-64-v2 instruction set (including SSE4.2).
+          # Keep NumPy below 2.4 so the app can run on older CPUs.
+          python -m pip install "numpy<2.4" . pyinstaller
+          python -c "import numpy; print('Using NumPy', numpy.__version__); assert tuple(int(p) for p in numpy.__version__.split('.')[:2]) < (2, 4)"
 
       - name: Create an entry-point wrapper
         shell: pwsh
