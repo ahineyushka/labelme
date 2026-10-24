@@ -41,11 +41,21 @@ jobs:
           @'
           # Initialize NumPy before labelme imports ONNX Runtime on Windows.
           # ONNX Runtime's native extension uses NumPy's C API during import.
+          import importlib.metadata
+          import sys
+
           import numpy
 
           from labelme.__main__ import main
 
           if __name__ == "__main__":
+              if "--portable-smoke-test" in sys.argv:
+                  # gdown reads its installed distribution metadata at import time.
+                  import gdown
+
+                  print(f"Labelme {importlib.metadata.version('labelme')}")
+                  print(f"gdown {importlib.metadata.version('gdown')}")
+                  raise SystemExit(0)
               main()
           '@ | Set-Content -Path build/labelme_launcher.py -Encoding utf8
 
@@ -73,6 +83,7 @@ jobs:
             --add-data "$configPath;labelme/_config" `
             --add-data "$iconsPath;labelme/icons" `
             --add-data "$translatePath;labelme/translate" `
+            --copy-metadata gdown `
             --icon "$iconPath" `
             --onedir
 
@@ -100,6 +111,7 @@ jobs:
             --add-data "$configPath;labelme/_config" `
             --add-data "$iconsPath;labelme/icons" `
             --add-data "$translatePath;labelme/translate" `
+            --copy-metadata gdown `
             --onedir
 
           if ($LASTEXITCODE -ne 0) {
@@ -121,14 +133,15 @@ jobs:
           if (-not (Test-Path $smokeExe)) {
             throw "Build did not produce the console smoke-test executable: $smokeExe"
           }
-          $versionOutput = & $smokeExe --version 2>&1
+          $versionOutput = & $smokeExe --portable-smoke-test 2>&1
           $exitCode = $LASTEXITCODE
           $versionOutput | ForEach-Object { Write-Host $_ }
           if ($exitCode -ne 0) {
             throw "The packaged console smoke test exited with code $exitCode"
           }
-          if (($versionOutput -join "`n") -notmatch "labelme") {
-            throw "The packaged console smoke test did not report the Labelme version."
+          $smokeText = $versionOutput -join "`n"
+          if ($smokeText -notmatch "Labelme" -or $smokeText -notmatch "gdown") {
+            throw "The packaged smoke test did not report both Labelme and gdown metadata."
           }
 
       - name: Upload portable application
