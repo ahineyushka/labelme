@@ -51,6 +51,11 @@ jobs:
             throw "Required OSAM vocabulary file was not found: $bpePath"
           }
 
+          $configPath = (Resolve-Path "labelme/_config/default_config.yaml").Path
+          $iconsPath = (Resolve-Path "labelme/icons").Path
+          $translatePath = (Resolve-Path "labelme/translate").Path
+          $iconPath = (Resolve-Path "labelme/icons/icon-256.png").Path
+
           pyinstaller build/labelme_launcher.py `
             --name=Labelme `
             --windowed `
@@ -58,10 +63,10 @@ jobs:
             --clean `
             --specpath=build `
             --add-data "$bpePath;osam/_models/yoloworld/clip" `
-            --add-data "labelme/_config/default_config.yaml;labelme/_config" `
-            --add-data "labelme/icons;labelme/icons" `
-            --add-data "labelme/translate;labelme/translate" `
-            --icon "labelme/icons/icon-256.png" `
+            --add-data "$configPath;labelme/_config" `
+            --add-data "$iconsPath;labelme/icons" `
+            --add-data "$translatePath;labelme/translate" `
+            --icon "$iconPath" `
             --onedir
 
           if ($LASTEXITCODE -ne 0) {
