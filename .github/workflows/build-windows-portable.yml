@@ -73,16 +73,55 @@ jobs:
             throw "PyInstaller failed with exit code $LASTEXITCODE"
           }
 
-      - name: Check the executable
+      - name: Build console smoke-test executable
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD "dist/Labelme/Labelme.exe"
-          if (-not (Test-Path $exe)) {
-            throw "Build did not produce the expected executable: $exe"
-          }
-          & $exe --help
+          $osamPath = python -c "import os, osam; print(os.path.dirname(osam.__file__))"
+          $bpePath = Join-Path $osamPath "_models/yoloworld/clip/bpe_simple_vocab_16e6.txt.gz"
+          $configPath = (Resolve-Path "labelme/_config/default_config.yaml").Path
+          $iconsPath = (Resolve-Path "labelme/icons").Path
+          $translatePath = (Resolve-Path "labelme/translate").Path
+
+          pyinstaller build/labelme_launcher.py `
+            --name=LabelmeSmoke `
+            --console `
+            --noconfirm `
+            --distpath=build/smoke-dist `
+            --workpath=build/smoke-work `
+            --specpath=build/smoke-spec `
+            --add-data "$bpePath;osam/_models/yoloworld/clip" `
+            --add-data "$configPath;labelme/_config" `
+            --add-data "$iconsPath;labelme/icons" `
+            --add-data "$translatePath;labelme/translate" `
+            --onedir
+
           if ($LASTEXITCODE -ne 0) {
-            throw "The packaged executable failed its --help smoke test."
+            throw "PyInstaller smoke-test build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Check the executables
+        shell: pwsh
+        run: |
+          $guiExe = Join-Path $PWD "dist/Labelme/Labelme.exe"
+          if (-not (Test-Path $guiExe)) {
+            throw "Build did not produce the expected GUI executable: $guiExe"
+          }
+          if ((Get-Item $guiExe).Length -lt 100000) {
+            throw "The GUI executable is unexpectedly small."
+          }
+
+          $smokeExe = Join-Path $PWD "build/smoke-dist/LabelmeSmoke/LabelmeSmoke.exe"
+          if (-not (Test-Path $smokeExe)) {
+            throw "Build did not produce the console smoke-test executable: $smokeExe"
+          }
+          $versionOutput = & $smokeExe --version 2>&1
+          $exitCode = $LASTEXITCODE
+          $versionOutput | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) {
+            throw "The packaged console smoke test exited with code $exitCode"
+          }
+          if (($versionOutput -join "`n") -notmatch "labelme") {
+            throw "The packaged console smoke test did not report the Labelme version."
           }
 
       - name: Upload portable application
